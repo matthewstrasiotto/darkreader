@@ -1,92 +1,93 @@
 import {m} from 'malevic';
 import {getContext} from 'malevic/dom';
-import {TextBox} from '../../controls';
-import VirtualScroll from '../../controls/virtual-scroll';
+import {Button} from '../../controls';
 
 interface SiteListProps {
     siteList: string[];
+    autoFocus?: boolean;
     onChange: (sites: string[]) => void;
-}
-
-interface SiteListStore {
-    indices: WeakMap<Node, number>;
-    shouldFocusAtIndex: number;
-    wasVisible: boolean;
 }
 
 export default function SiteList(props: SiteListProps) {
     const context = getContext();
-    const store = context.store as SiteListStore;
-    if (!context.prev) {
-        store.indices = new WeakMap();
-        store.shouldFocusAtIndex = -1;
-        store.wasVisible = false;
+    const store = context.store as {prevSiteList: string[]; wasVisible: boolean; editorNode: HTMLTextAreaElement};
+    store.prevSiteList = store.prevSiteList || [];
+    store.wasVisible = store.wasVisible || false;
+
+    const {siteList} = props;
+    const didSiteListChange = (
+        (store.prevSiteList.length !== siteList.length) ||
+        store.prevSiteList.some((s, i) => s !== siteList[i])
+    );
+    store.prevSiteList = siteList;
+
+    function setEditorText() {
+        store.editorNode.value = siteList.join('\n') + '\n';
     }
 
-    context.onRender((node: HTMLElement) => {
-        const isVisible = node.clientWidth > 0;
-        const {wasVisible} = store;
+    function onEditorRender(el: HTMLTextAreaElement) {
+        store.editorNode = el;
+
+        const isVisible = el.clientHeight > 0;
+        const becameVisible = !store.wasVisible && isVisible;
+
+        if (becameVisible || didSiteListChange) {
+            setEditorText();
+        }
+
+        if (props.autoFocus && becameVisible) {
+            el.selectionStart = el.value.length;
+            el.selectionEnd = el.value.length;
+            el.focus();
+        }
         store.wasVisible = isVisible;
-        if (!wasVisible && isVisible) {
-            store.shouldFocusAtIndex = props.siteList.length;
-            context.refresh();
-        }
-    });
-
-    function onTextChange(e: Event & {target: HTMLInputElement}) {
-        const index = store.indices.get(e.target);
-        const values = props.siteList.slice();
-        const value = e.target.value.trim();
-        if (values.includes(value)) {
-            return;
-        }
-
-        if (!value) {
-            values.splice(index, 1);
-            store.shouldFocusAtIndex = index;
-        } else if (index === values.length) {
-            values.push(value);
-            store.shouldFocusAtIndex = index + 1;
-        } else {
-            values.splice(index, 1, value);
-            store.shouldFocusAtIndex = index + 1;
-        }
-
-        props.onChange(values);
     }
 
-    function createTextBox(text: string, index: number) {
-        const onRender = (node: HTMLInputElement) => {
-            store.indices.set(node, index);
-            if (store.shouldFocusAtIndex === index) {
-                store.shouldFocusAtIndex = -1;
-                node.focus();
-            }
-        };
-        return (
-            <TextBox
-                class="site-list__textbox"
-                value={text}
-                onrender={onRender}
-                placeholder="google.com/maps"
-            />
-        );
+    const placeholder = 'www.google.com/maps\nmail.google.com\n';
+
+    function isSiteURLValid(value: string) {
+        return /^([^\.\s]+?\.?)+$/.test(value);
+    }
+
+    function onApplyClick() {
+        let sites = store.editorNode.value
+            .split('\n')
+            .map((site) => site.trim())
+            .filter(isSiteURLValid);
+        sites = Array.from(new Set(sites));
+        props.onChange(sites);
+    }
+
+    function onCancelClick() {
+        setEditorText();
     }
 
     return (
         <div class="site-list">
-            <VirtualScroll
-                root={(
-                    <div
-                        class="site-list__v-scroll-root"
-                        onchange={onTextChange}
-                    />
-                )}
-                items={props.siteList
-                    .map((site, index) => createTextBox(site, index))
-                    .concat(createTextBox('', props.siteList.length))}
-                scrollToIndex={store.shouldFocusAtIndex}
-            />
+            <textarea
+                class="site-list__editor"
+                placeholder={placeholder}
+                onrender={onEditorRender}
+                autocomplete="off"
+                spellcheck="false"
+            ></textarea>
+            <div class="site-list__buttons">
+                <Button
+                    class="site-list__button site-list__button-cancel"
+                    onclick={onCancelClick}
+                >
+                    Cancel
+                </Button>
+                <Button
+                    class="site-list__button site-list__button-apply"
+                    onclick={onApplyClick}
+                >
+                    <span class="site-list__button-apply__content">
+                        <span class="site-list__button-apply__icon"></span>
+                        Apply
+                    </span>
+                </Button>
+            </div>
         </div>
     );
 }
